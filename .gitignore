@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+dist/
+build/
+.coverage
+htmlcov/
+.vscode/
+*.tfstate
+*.tfstate.*
+.crash
+.terraform/
+.terraform.lock.hcl
+.DS_Store
+Thumbs.db

@@ -1,0 +1,11 @@
+README.md
+pyproject.toml
+src/python_terraform_starter.egg-info/PKG-INFO
+src/python_terraform_starter.egg-info/SOURCES.txt
+src/python_terraform_starter.egg-info/dependency_links.txt
+src/python_terraform_starter.egg-info/entry_points.txt
+src/python_terraform_starter.egg-info/requires.txt
+src/python_terraform_starter.egg-info/top_level.txt
+src/sweeper/__init__.py
+src/sweeper/cli.py
+tests/test_cli.py
