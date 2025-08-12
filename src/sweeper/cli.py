@@ -3,12 +3,14 @@ from __future__ import annotations
 import builtins
 import fnmatch
 import os
+import shutil
 import typing
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Annotated
 
 import typer
 from rich.console import Console
@@ -68,12 +70,28 @@ def _delete(t: Target, dry_run: bool) -> tuple[Target, Exception | None]:
         return (t, e)
 
 
+def _copy(t: Target, archive_path: Path, dry_run: bool) -> tuple[Target, Exception | None]:
+    try:
+        if not dry_run:
+            archive_target = archive_path / t.path.name
+            archive_path.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(t.path, archive_target)
+        return (t, None)
+    except Exception as e:  # noqa: BLE001
+        return (t, e)
+
+
 def list_cmd(
-    root: Path = typer.Argument(  # noqa: B008
-        ..., exists=True, file_okay=False, readable=True, help="Root directory"
-    ),
-    older_than: str = typer.Option(default="30d", help="Age threshold e.g. 7d|12h|30m"),
-    pattern: str = typer.Option("*", help="Glob pattern (e.g., '*.log' or '*.gz')"),
+    root: Annotated[
+        Path,
+        typer.Argument(..., exists=True, file_okay=False, readable=True, help="Root directory"),
+    ],
+    older_than: Annotated[
+        str, typer.Option("--older-than", help="Age threshold e.g. 7d|12h|30m")
+    ] = "30d",
+    pattern: Annotated[
+        str, typer.Option("--pattern", help="Glob pattern (e.g., '*.log' or '*.gz')]")
+    ] = "*.log",
 ) -> None:
     """List candidate files."""
     items = sorted(_iter_targets(root, pattern, older_than), key=lambda t: t.mtime)
@@ -88,21 +106,49 @@ def list_cmd(
 
 
 def sweep_cmd(
-    root: Path = typer.Argument(..., exists=True, file_okay=False, readable=True),  # noqa: B008
-    older_than: str = typer.Option(default="30d", help="Age threshold e.g. 7d|12h|30m"),
-    pattern: str = typer.Option("*"),
-    concurrency: int = typer.Option(8, min=1, help="Delete worker threads"),
-    dry_run: bool = typer.Option(True, help="Show actions without deleting"),
+    root: Annotated[
+        Path,
+        typer.Argument(..., exists=True, file_okay=False, readable=True, help="Root directory"),
+    ],
+    older_than: Annotated[
+        str, typer.Option("--older-than", help="Age threshold e.g. 7d|12h|30m")
+    ] = "30d",
+    pattern: Annotated[
+        str, typer.Option("--pattern", help="Glob pattern (e.g., '*.log' or '*.gz')]")
+    ] = "*.log",
+    concurrency: Annotated[
+        int, typer.Option("--concurrency", min=1, help="Delete worker threads")
+    ] = 8,
+    dry_run: Annotated[bool, typer.Option(help="Dry run / no changes")] = True,
+    archive_path: Annotated[
+        Path | None, typer.Option("--archive-to", help="Path to archive directory")
+    ] = None,
 ) -> None:
-    """Delete matching files older than N days (dry-run by default)."""
+    """Archive and Delete matching files older than N days (dry-run by default)."""
     candidates = list(_iter_targets(root, pattern, older_than))
     if not candidates:
-        console.print("No files to delete.")
+        console.print("No files to archive and delete.")
         raise typer.Exit(code=0)
 
     console.print(f"Found {len(candidates)} files. Dry run: {dry_run}. Concurrency: {concurrency}.")
     errors: builtins.list[Exception] = []
 
+    # Achiving logic
+    if archive_path:
+        console.print("Starting archiving...")
+        with ThreadPoolExecutor(max_workers=concurrency) as ex:
+            futures = [ex.submit(_copy, t, archive_path, dry_run) for t in candidates]
+            for fut in as_completed(futures):
+                t, err = fut.result()
+                if err:
+                    errors.append(err)
+                    console.print(f"[red]ERROR[/red] {t.path}: {err}")
+                else:
+                    action = "Would archive" if dry_run else "Archived"
+                    console.print(f"{action}: {archive_path / t.path.name}")
+
+    # Deletion logic
+    console.print("Starting deletion...")
     with ThreadPoolExecutor(max_workers=concurrency) as ex:
         futures = [ex.submit(_delete, t, dry_run) for t in candidates]
         for fut in as_completed(futures):
@@ -124,23 +170,40 @@ def sweep_cmd(
 @typing.no_type_check
 @app.command("sweep")
 def sweep_cli(
-    root: Path = typer.Argument(..., exists=True, file_okay=False, readable=True),  # noqa: B008
-    older_than: str = typer.Option(default="30d", help="Age threshold e.g. 7d|12h|30m"),
-    pattern: str = typer.Option("*"),
-    concurrency: int = typer.Option(8, min=1, help="Delete worker threads"),
-    dry_run: bool = typer.Option(True, help="Show actions without deleting"),
+    root: Annotated[
+        Path,
+        typer.Argument(..., exists=True, file_okay=False, readable=True, help="Root directory"),
+    ],
+    older_than: Annotated[
+        str, typer.Option("--older-than", help="Age threshold e.g. 7d|12h|30m")
+    ] = "30d",
+    pattern: Annotated[
+        str, typer.Option("--pattern", help="Glob pattern (e.g., '*.log' or '*.gz')]")
+    ] = "*.log",
+    concurrency: Annotated[
+        int, typer.Option("--concurrency", min=1, help="Delete worker threads")
+    ] = 8,
+    dry_run: Annotated[bool, typer.Option(help="Dry run / no changes")] = True,
+    archive_path: Annotated[
+        Path | None, typer.Option("--archive-to", help="Path to archive directory")
+    ] = None,
 ) -> None:
-    return sweep_cmd(root, older_than, pattern, concurrency, dry_run)
+    return sweep_cmd(root, older_than, pattern, concurrency, dry_run, archive_path)
 
 
 @typing.no_type_check
 @app.command("list")
 def list_cli(
-    root: Path = typer.Argument(  # noqa: B008
-        ..., exists=True, file_okay=False, readable=True, help="Root directory"
-    ),
-    older_than: str = typer.Option(default="30d", help="Age threshold e.g. 7d|12h|30m"),
-    pattern: str = typer.Option("*", help="Glob pattern (e.g., '*.log' or '*.gz')"),
+    root: Annotated[
+        Path,
+        typer.Argument(..., exists=True, file_okay=False, readable=True, help="Root directory"),
+    ],
+    older_than: Annotated[
+        str, typer.Option("--older-than", help="Age threshold e.g. 7d|12h|30m")
+    ] = "30d",
+    pattern: Annotated[
+        str, typer.Option("--pattern", help="Glob pattern (e.g., '*.log' or '*.gz')]")
+    ] = "*.log",
 ) -> None:
     return list_cmd(root, older_than, pattern)
 
