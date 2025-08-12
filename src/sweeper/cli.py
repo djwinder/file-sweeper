@@ -25,8 +25,26 @@ class Target:
     mtime: datetime
 
 
-def _iter_targets(root: Path, pattern: str, older_than_days: int) -> Iterable[Target]:
-    cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+def get_seconds(older_than: str) -> int:
+    """Convert a string like '7d' or '12h' or '30m' to seconds."""
+    unit = older_than[-1]
+    try:
+        value = int(older_than[:-1])
+    except ValueError:
+        raise typer.BadParameter(f"Invalid older-than value: {older_than}") from None
+    if unit == "d":
+        return value * 86400
+    elif unit == "h":
+        return value * 3600
+    elif unit == "m":
+        return value * 60
+    else:
+        raise typer.BadParameter(f"Invalid time unit in older-than: {unit}. Use d, h, or m.")
+
+
+def _iter_targets(root: Path, pattern: str, older_than: str) -> Iterable[Target]:
+    # Create function to take the string and return seconds
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=get_seconds(older_than))
     for dirpath, _dirnames, filenames in os.walk(root):
         for name in filenames:
             if not fnmatch.fnmatch(name, pattern):
@@ -35,7 +53,7 @@ def _iter_targets(root: Path, pattern: str, older_than_days: int) -> Iterable[Ta
             try:
                 stat = p.stat()
             except OSError:
-                continue
+                raise OSError(f"Error accessing {p}") from None
             mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
             if mtime <= cutoff:
                 yield Target(p, stat.st_size, mtime)
@@ -54,7 +72,7 @@ def list_cmd(
     root: Path = typer.Argument(  # noqa: B008
         ..., exists=True, file_okay=False, readable=True, help="Root directory"
     ),
-    older_than: int = typer.Option(30, min=0, help="Age threshold in days"),
+    older_than: str = typer.Option(default="30d", help="Age threshold e.g. 7d|12h|30m"),
     pattern: str = typer.Option("*", help="Glob pattern (e.g., '*.log' or '*.gz')"),
 ) -> None:
     """List candidate files."""
@@ -71,7 +89,7 @@ def list_cmd(
 
 def sweep_cmd(
     root: Path = typer.Argument(..., exists=True, file_okay=False, readable=True),  # noqa: B008
-    older_than: int = typer.Option(30, min=0),
+    older_than: str = typer.Option(default="30d", help="Age threshold e.g. 7d|12h|30m"),
     pattern: str = typer.Option("*"),
     concurrency: int = typer.Option(8, min=1, help="Delete worker threads"),
     dry_run: bool = typer.Option(True, help="Show actions without deleting"),
@@ -107,7 +125,7 @@ def sweep_cmd(
 @app.command("sweep")
 def sweep_cli(
     root: Path = typer.Argument(..., exists=True, file_okay=False, readable=True),  # noqa: B008
-    older_than: int = typer.Option(30, min=0),
+    older_than: str = typer.Option(default="30d", help="Age threshold e.g. 7d|12h|30m"),
     pattern: str = typer.Option("*"),
     concurrency: int = typer.Option(8, min=1, help="Delete worker threads"),
     dry_run: bool = typer.Option(True, help="Show actions without deleting"),
@@ -121,7 +139,7 @@ def list_cli(
     root: Path = typer.Argument(  # noqa: B008
         ..., exists=True, file_okay=False, readable=True, help="Root directory"
     ),
-    older_than: int = typer.Option(30, min=0, help="Age threshold in days"),
+    older_than: str = typer.Option(default="30d", help="Age threshold e.g. 7d|12h|30m"),
     pattern: str = typer.Option("*", help="Glob pattern (e.g., '*.log' or '*.gz')"),
 ) -> None:
     return list_cmd(root, older_than, pattern)
