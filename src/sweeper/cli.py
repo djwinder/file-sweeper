@@ -50,9 +50,7 @@ def _delete(t: Target, dry_run: bool) -> tuple[Target, Exception | None]:
         return (t, e)
 
 
-@typing.no_type_check
-@app.command()
-def list(
+def list_cmd(
     root: Path = typer.Argument(  # noqa: B008
         ..., exists=True, file_okay=False, readable=True, help="Root directory"
     ),
@@ -71,9 +69,7 @@ def list(
     console.print(f"[bold]{len(items)}[/bold] files matched.")
 
 
-@typing.no_type_check
-@app.command()
-def sweep(
+def sweep_cmd(
     root: Path = typer.Argument(..., exists=True, file_okay=False, readable=True),  # noqa: B008
     older_than: int = typer.Option(30, min=0),
     pattern: str = typer.Option("*"),
@@ -105,6 +101,30 @@ def sweep(
         raise typer.Exit(code=1)
 
     console.print("Done.")
+
+
+@typing.no_type_check
+@app.command("sweep")
+def sweep_cli(
+    root: Path = typer.Argument(..., exists=True, file_okay=False, readable=True),  # noqa: B008
+    older_than: int = typer.Option(30, min=0),
+    pattern: str = typer.Option("*"),
+    concurrency: int = typer.Option(8, min=1, help="Delete worker threads"),
+    dry_run: bool = typer.Option(True, help="Show actions without deleting"),
+) -> None:
+    return sweep_cmd(root, older_than, pattern, concurrency, dry_run)
+
+
+@typing.no_type_check
+@app.command("list")
+def list_cli(
+    root: Path = typer.Argument(  # noqa: B008
+        ..., exists=True, file_okay=False, readable=True, help="Root directory"
+    ),
+    older_than: int = typer.Option(30, min=0, help="Age threshold in days"),
+    pattern: str = typer.Option("*", help="Glob pattern (e.g., '*.log' or '*.gz')"),
+) -> None:
+    return list_cmd(root, older_than, pattern)
 
 
 if __name__ == "__main__":

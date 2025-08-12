@@ -26,7 +26,11 @@ def test_list_and_sweep(tmp_path: Path) -> None:
     os.utime(older, (now - 3 * day_seconds, now - 3 * day_seconds))
 
     # List
-    res = runner.invoke(app, ["list", str(tmp_path), "--older-than", "1", "--pattern", "*.log"])
+    res = runner.invoke(
+        app,
+        ["list", str(tmp_path), "--older-than", "1", "--pattern", "*.log"],
+        env={"COLUMNS": "200"},
+    )
     assert res.exit_code == 0
     assert "old.log" in res.stdout and "older.log" in res.stdout
     assert "keep.txt" not in res.stdout
